@@ -1,0 +1,781 @@
+Option Explicit
+Sub CheckForErrors()
+    
+    'Rev 1 - 9/14/17 - Cassidy Green: Updated file structure, moved Save As to
+        'beginning, removed Region 1
+    'Rev 0 - 4/18/17 - Cassidy Green
+    
+    'The following Reference Libraries must be included (Tools > References >
+        'check boxes):
+        'Visual Basic For Applications
+        'Microsoft Excel 16.0 Object Library
+        'OLE Automation
+        'Microsoft Office 16.0 Object Library
+        'Microsoft Forms 2.0 Object Library
+        'Microsoft Scripting Runtime
+    
+    Dim fileDirectory As String, fileName As String, tempName As String, _
+        sheetName As String, columnRef As String, exceptionList() As String, _
+        finalMonth As String, startSheet As String, tempDirectory As String, _
+        programYear As String
+    
+    Dim i As Integer, j As Integer, k As Integer, criteriaSize As Integer, _
+        cHeading As Integer, cIfHeading As Integer, cIfOperation As Integer, _
+        cIfCondition As Integer, cOperation As Integer, cCondition As _
+        Integer, cErrorComment As Integer, addressCode As Integer, _
+        exceptionSize As Integer, errorCount(0 To 8) As Integer, regionNumber _
+        As Integer, secondHeading As Integer
+    
+    Dim lastRow As Long, lastColumn As Long, tempLastRow As Long, loopLastRow _
+        As Long, tempLastColumn As Long
+    
+    Dim outsideIf As Boolean, insideIf As Boolean
+    
+    Dim dataRange As Variant, criteriaRange As Variant, exceptionRange As _
+        Variant, regionList As Variant, key As Variant
+    
+    Dim runningTime As Single
+    
+    Dim headings As New Scripting.Dictionary, addresses As New _
+        Scripting.Dictionary, errorDict As New Scripting.Dictionary, criteria _
+        As New Scripting.Dictionary, months As New Scripting.Dictionary, _
+        explanations As New Scripting.Dictionary
+    
+    
+    
+    '-----ALL TABS-----
+    'Turn off application functions
+    TurnOffFunctions
+    Application.DisplayAlerts = False
+    
+    'Start timer
+    runningTime = Timer
+    
+    'Create months dictionary
+    For i = 1 To 12
+        months.Add key:=Sheets("Criteria").Cells(i + 8, 1).Text, Item:=i
+    Next i
+    
+    'Assign final month
+    finalMonth = Sheets("Criteria").Cells(7, 2).Text
+    
+    'Assign program year
+    programYear = Sheets("Criteria").Cells(8, 2).Text
+    
+    'Name file directory for initial file name and saving main file later
+    fileDirectory = _
+        "Z:\Weatherization Assistance Program\Weatherization Makeover\" & _
+        programYear & "\" & programYear & " Monthly Reporting\Summary Reports"
+    
+    'Create new file name
+    fileName = months(finalMonth) & " " & finalMonth & _
+        " - Error Check Engine " & Format(Date, "yymmdd")
+    
+    'Save workbook in proper folder
+    ActiveWorkbook.SaveAs fileName:=fileDirectory & "\" & fileName
+    
+    'Clear all filters and contents
+    Sheets("Export").AutoFilterMode = False
+    Sheets("Export").Cells.Clear
+    Sheets("Full Report").AutoFilterMode = False
+    Sheets("Full Report").Cells.Clear
+    Sheets("1-NECALG").AutoFilterMode = False
+    Sheets("1-NECALG").Cells.Clear
+    Sheets("2-Pueblo").AutoFilterMode = False
+    Sheets("2-Pueblo").Cells.Clear
+    Sheets("4-HRWC").AutoFilterMode = False
+    Sheets("4-HRWC").Cells.Clear
+    Sheets("5-NWCCOG").AutoFilterMode = False
+    Sheets("5-NWCCOG").Cells.Clear
+    Sheets("6-LPEC").AutoFilterMode = False
+    Sheets("6-LPEC").Cells.Clear
+    Sheets("7-Arapahoe").AutoFilterMode = False
+    Sheets("7-Arapahoe").Cells.Clear
+    Sheets("8-ERC").AutoFilterMode = False
+    Sheets("8-ERC").Cells.Clear
+    
+    'Hold current file name
+    fileName = ActiveWorkbook.Name 'fileName holds main file name
+    startSheet = ActiveSheet.Name 'startSheet holds starting worksheet
+    
+    
+    
+    '-----EXPORTED REPORT-----
+    'Browse for and open export data
+    With Application.FileDialog(msoFileDialogFilePicker)
+        .AllowMultiSelect = False
+        .Title = "Please Select Error Check Engine Exported Report"
+        .InitialFileName = Environ$("USERPROFILE") & "\Downloads"
+        .Filters.Clear
+        .Filters.Add "Text Files", "*.csv"
+        
+        If .Show = True Then
+            'tempDirectory holds exported file location
+            tempDirectory = .SelectedItems(1)
+        End If
+    End With
+    
+    Workbooks.Open (tempDirectory)
+    tempName = ActiveWorkbook.Name 'tempName holds exported file name
+    sheetName = ActiveSheet.Name 'sheetName holds exported file sheet name
+    
+    'Find last column and last row of report, minus tag
+    lastColumn = Cells(1, Columns.Count).End(xlToLeft).Column
+    lastRow = Cells(Rows.Count, 1).End(xlUp).Row - 7
+    
+    'Equate exported report to Export tab of main report
+    Workbooks(fileName).Sheets("Export").Range(Cells(1, 1).address, _
+        Cells(lastRow, lastColumn).address) = _
+        Workbooks(tempName).Sheets(sheetName).Range(Cells(1, 1), _
+        Cells(lastRow, lastColumn)).Value
+    
+    'Close exported report
+    Workbooks(tempName).Close
+    
+    'Turn on alerts
+    Application.DisplayAlerts = True
+    
+    'Adjust column widths
+    Cells.EntireColumn.AutoFit
+    
+    
+    
+    '-----CRITERIA TAB-----
+    'Count criteria list
+    Sheets("Criteria").Select
+    
+    'Assign column headings to numbers
+    cHeading = 1
+    cIfHeading = 2
+    cIfOperation = 3
+    cIfCondition = 4
+    cOperation = 5
+    cCondition = 6
+    cErrorComment = 7
+    
+    'Find criteria and exception list sizes
+    criteriaSize = Cells(Rows.Count, 5).End(xlUp).Row
+    exceptionSize = Cells(Rows.Count, 14).End(xlUp).Row
+    
+    'Hold criteria and exception ranges
+    criteriaRange = Range(Cells(3, 5), Cells(criteriaSize, 11))
+    exceptionRange = Range(Cells(3, 14), Cells(exceptionSize, 15))
+    
+    'Redimension criteria and exception sizes and arrays
+    criteriaSize = criteriaSize - 2
+    ReDim exceptionList(exceptionSize - 2)
+    
+    'Create criteria dictionary
+    For i = 1 To criteriaSize
+        If Not criteria.Exists(criteriaRange(i, cHeading)) Then
+            criteria.Add key:=criteriaRange(i, cHeading), Item:=i
+        End If
+    Next i
+    
+    'Create exception list
+    For i = 1 To exceptionSize - 2
+        exceptionList(i) = exceptionRange(i, 1) & criteria(exceptionRange(i, _
+            2))
+    Next i
+    
+    'Rename headings in criteria range
+    For i = 1 To criteriaSize
+        criteriaRange(i, 1) = criteria(criteriaRange(i, 1))
+    Next i
+    
+    
+    
+    '-----EXPORT TAB-----
+    Sheets("Export").Select
+    
+    'Hold data headings
+    dataRange = Range(Cells(1, 1), Cells(1, lastColumn))
+    
+    'Check for headings for continuity and populate headings dictionary
+    For i = 1 To lastColumn
+        If Not criteria.Exists(dataRange(1, i)) Then
+            If MsgBox("The heading """ & dataRange(1, i) & _
+                """ isn't in the criteria list." & vbNewLine & _
+                "Continue anyway?", vbCritical + vbYesNo, _
+                "Unrecognized Heading") = vbNo Then
+                TurnOnFunctions
+                End 'Abort code if user does not wish to continue
+            End If
+        End If
+        headings.Add key:=dataRange(1, i), Item:=i
+    Next i
+    
+    'Check for criteria for continuity
+    For Each key In criteria.Keys
+        If Not headings.Exists(key) And Not (key = "Audit-Completion Length" _
+            Or key = "CFM Difference") Then
+            If MsgBox("The heading """ & key & _
+                """ isn't in the exported report." & vbNewLine & _
+                "Continue anyway?", vbCritical + vbYesNo, _
+                "Unrecognized Heading") = vbNo Then
+                TurnOnFunctions
+                End 'Abort code if user does not wish to continue
+            End If
+        End If
+    Next key
+    
+    'Create calulated headings and formulas
+    lastColumn = lastColumn + 1
+    Cells(1, lastColumn) = "Audit-Completion Length"
+    Cells(2, lastColumn) = "=RC[" & headings("Installation Completion Date") _
+        - lastColumn & "]-RC[" & headings("Audit Date") - lastColumn & "]"
+    Cells(2, lastColumn).NumberFormat = "General"
+    lastColumn = lastColumn + 1
+    Cells(1, lastColumn) = "CFM Difference"
+    Cells(2, lastColumn) = "=IFERROR(RC[" & headings("CFM 50 Pre") - _
+        lastColumn & "]-RC[" & headings("CFM 50 Post") - lastColumn & _
+        "],0.404)"
+    lastColumn = lastColumn + 1
+    Cells(1, lastColumn) = "Error Comment"
+    
+    'Add new headings to dictionary
+    dataRange = Range(Cells(1, 1), Cells(1, lastColumn))
+    For i = lastColumn - 1 To lastColumn
+        headings.Add key:=dataRange(1, i), Item:=i
+    Next i
+    
+    'Fill down calculated formulas and manually calculate
+    Range(Cells(2, lastColumn - 2), Cells(2, lastColumn - 1)).Select
+    Selection.AutoFill Destination:=Range(Cells(2, lastColumn - 2), _
+        Cells(lastRow, lastColumn - 1)), Type:=xlFillDefault
+    Sheets("Export").Calculate
+    
+    'Convert calculated columns to values
+    Range(Cells(2, lastColumn - 1), Cells(lastRow, lastColumn)) = _
+        Range(Cells(2, lastColumn - 1), Cells(lastRow, lastColumn)).Value
+    
+    'Hold data range
+    dataRange = Range(Cells(1, 1), Cells(lastRow, lastColumn))
+    
+    'Rename headings to numbers
+    For i = 1 To lastColumn
+        dataRange(1, i) = criteria(dataRange(1, i))
+    Next i
+    
+    'Initialize error count array
+    For i = 0 To 8
+        errorCount(i) = 0
+    Next i
+    
+    'Check through criteria
+    For i = 2 To lastRow 'excluding the top row with headings
+        'Find region number
+        If dataRange(i, headings("Region")) = "" Then
+            regionNumber = 0
+        Else
+            regionNumber = Left(dataRange(i, headings("Region")), 1)
+        End If
+        'Filter months past finalMonth
+        If months(dataRange(i, headings("Transfer Month"))) > _
+            months(finalMonth) Then
+            GoTo NextIteration
+        End If
+        For j = 1 To lastColumn
+            For k = 1 To criteriaSize
+                If dataRange(1, j) = criteriaRange(k, 1) Then
+                    
+                    'Outside if block = if "If Criteria" is empty, or if
+                    '"If Criteria" passes
+                    outsideIf = False
+                    If IsEmpty(criteriaRange(k, cIfHeading)) Then
+                        outsideIf = True
+                    ElseIf InStr(criteriaRange(k, cIfCondition), """") Then
+                        If Application.Evaluate("""" & dataRange(i, _
+                            headings(criteriaRange(k, cIfHeading))) & """" & _
+                            criteriaRange(k, cIfOperation) & criteriaRange(k, _
+                            cIfCondition)) Then
+                            outsideIf = True
+                        End If
+                    ElseIf Application.Evaluate(dataRange(i, _
+                        headings(criteriaRange(k, cIfHeading))) & _
+                        criteriaRange(k, cIfOperation) & criteriaRange(k, _
+                        cIfCondition)) Then
+                        outsideIf = True
+                    End If
+                    
+                    'Inside if block = if "Criteria" passes
+                    insideIf = False
+                    If outsideIf Then
+                        'If job and criteria are on Exception List
+                        If UBound(Filter(exceptionList, dataRange(i, 1) & _
+                            dataRange(1, j))) > -1 Then
+                            'Do nothing
+                        'If criteria is empty
+                        ElseIf IsEmpty(criteriaRange(k, cOperation)) Then
+                            'Do nothing
+                        'If criteria is a function
+                        ElseIf criteriaRange(k, cOperation) = "function" Then
+                            Select Case criteriaRange(k, cCondition)
+                                Case "checkPhone"
+                                    insideIf = checkPhone(dataRange(i, j))
+                                Case "checkAddress"
+                                    'Check for address in dictionary, add if
+                                        'necessary
+                                    If addresses.Exists(dataRange(i, j)) Then
+                                        addressCode = _
+                                            addresses(dataRange(i, j))
+                                    Else
+                                        Select Case dataRange(1, j)
+                                            Case criteria("Mailing Address 1")
+                                                secondHeading = _
+                                                    headings("Mailing Address 2")
+                                            Case criteria("Unit Address 1")
+                                                secondHeading = _
+                                                    headings("Unit Address 2")
+                                        End Select
+                                        addressCode = _
+                                            checkAddress(dataRange(i, j), _
+                                            dataRange(i, secondHeading))
+                                        addresses.Add key:=dataRange(i, j), _
+                                            Item:=addressCode
+                                    End If
+                                    If addressCode = 2 Then
+                                        insideIf = True
+                                    End If
+                                Case "checkFuel"
+                                    insideIf = checkFuel(dataRange(i, j), _
+                                        dataRange(i, _
+                                        headings("Heating Utility Fuel Type")))
+                                Case "checkCFM"
+                                    'Check for CFM Explanation in dictionary,
+                                        'add if necessary
+                                    If explanations.Exists(dataRange(i, _
+                                        headings("Job: Job Number"))) Then
+                                        insideIf = explanations(dataRange(i, _
+                                            headings("Job: Job Number")))
+                                    Else
+                                        insideIf = checkCFM(dataRange(i, _
+                                            headings("CFM 50 Post Not Measured Comments")), _
+                                            dataRange(i, _
+                                            headings("CFM 50 Pre Not Measured Comments")))
+                                            explanations.Add _
+                                                key:=dataRange(i, _
+                                                headings("Job: Job Number")), _
+                                                Item:=insideIf
+                                        If insideIf = False Then
+                                            exceptionSize = exceptionSize + 1
+                                            Sheets("Criteria").Cells(exceptionSize, _
+                                                14) = dataRange(i, _
+                                                headings("Job: Job Number"))
+                                            Sheets("Criteria").Cells(exceptionSize, _
+                                                15) = "CFM Difference"
+                                        End If
+                                    End If
+                                End Select
+                        'If it has word criteria
+                        ElseIf InStr(criteriaRange(k, cCondition), """") Then
+                            If IsError(Application.Evaluate("""" & _
+                                dataRange(i, j) & """" & criteriaRange(k, _
+                                cOperation) & criteriaRange(k, cCondition))) _
+                                Then
+                                insideIf = True
+                            ElseIf Not Application.Evaluate("""" & _
+                                dataRange(i, j) & """" & criteriaRange(k, _
+                                cOperation) & criteriaRange(k, cCondition)) _
+                                Then
+                                insideIf = True
+                            End If
+                        'If it has numeric criteria
+                        ElseIf IsNumeric(criteriaRange(k, cCondition)) Then
+                            'Replace blanks with zeros for numeric evaluation
+                            If IsEmpty(dataRange(i, j)) Then
+                                dataRange(i, j) = 0
+                            End If
+                            If IsError(Application.Evaluate(dataRange(i, j) & _
+                                criteriaRange(k, cOperation) & _
+                                criteriaRange(k, cCondition))) Then
+                                insideIf = True
+                            ElseIf Not Application.Evaluate(dataRange(i, j) & _
+                                criteriaRange(k, cOperation) & _
+                                criteriaRange(k, cCondition)) Then
+                                insideIf = True
+                            End If
+                        Else 'Do nothing
+                        End If
+                    End If
+                    
+                    'Turn error cells red and add error comment
+                    If insideIf Then
+                        'Check to see if error has already been collected
+                        If Not errorDict.Exists(dataRange(i, 1) & _
+                            criteriaRange(k, cErrorComment)) Then
+                            'If not, then:
+                            'Add to error dictionary
+                            errorDict.Add key:=dataRange(i, 1) & _
+                                criteriaRange(k, cErrorComment), Item:=i & j _
+                                & k
+                            'Turn cell red
+                            Cells(i, j).Interior.Color = RGB(255, 0, 0)
+                            'Add error comment
+                            If IsEmpty(Cells(i, lastColumn)) Then
+                                Cells(i, lastColumn) = criteriaRange(k, _
+                                    cErrorComment)
+                            Else
+                                Cells(i, lastColumn) = Cells(i, lastColumn) & _
+                                    ", " & criteriaRange(k, cErrorComment)
+                            End If
+                            'Add to regional error count
+                            errorCount(regionNumber) = _
+                                errorCount(regionNumber) + 1
+                        End If
+                    End If
+                    
+                End If
+            Next k
+        Next j
+NextIteration:
+    Next i
+    
+    'Filter jobs with errors
+    Sheets("Export").Range(Cells(1, 1), Cells(lastRow, _
+        lastColumn)).AutoFilter Field:=lastColumn, Criteria1:="<>"
+        
+    'Copy error jobs into full report
+    Sheets("Export").Range(Cells(1, 1), Cells(lastRow, lastColumn)).Copy _
+        Sheets("Full Report").Cells(1, 1)
+        
+    'Turn off filters
+    Sheets("Export").AutoFilterMode = False
+    
+    
+    
+    '-----FULL REPORT TAB-----
+    Sheets("Full Report").Select
+    
+    'Find new last column and last row
+    lastColumn = Cells(1, Columns.Count).End(xlToLeft).Column
+    lastRow = Cells(Rows.Count, 1).End(xlUp).Row
+    
+    'Bold headings
+    Range(Cells(1, 1), Cells(1, lastColumn)).Font.Bold = True
+    
+    'Turn off alerts
+    Application.DisplayAlerts = False
+    
+    'Browse for latest consent form report
+    With Application.FileDialog(msoFileDialogFilePicker)
+        .AllowMultiSelect = False
+        .Title = "Please Select Most Recent Desk Audit Consent Form Report"
+        .InitialFileName = fileDirectory
+        .Filters.Clear
+        .Filters.Add "Excel Files", "*.xl*"
+        
+        If .Show = True Then
+            tempDirectory = .SelectedItems(1)
+        End If
+    End With
+    
+    Workbooks.Open (tempDirectory)
+    tempName = ActiveWorkbook.Name 'tempName holds exported file name
+    sheetName = ActiveSheet.Name 'sheetName holds exported file sheet name
+    
+    'Find last row and column
+    tempLastRow = Cells(Rows.Count, 1).End(xlUp).Row
+    tempLastColumn = Cells(1, Columns.Count).End(xlToLeft).Column
+    
+    'Filter jobs by error
+    Sheets(sheetName).Range(Cells(1, 1), Cells(tempLastRow, tempLastColumn)).AutoFilter _
+        Field:=tempLastColumn, Criteria1:="<>0"
+    
+    'Copy error jobs into full report
+    Workbooks(tempName).Sheets(sheetName).Range(Cells(1, 1), _
+        Cells(tempLastRow, tempLastColumn)).Copy _
+        Workbooks(fileName).Sheets("Full Report").Cells(lastRow + 2, 1)
+    
+    'Close exported report
+    Workbooks(tempName).Close
+    
+    'Turn on alerts
+    Application.DisplayAlerts = True
+    
+    'Adjust column widths
+    Cells.EntireColumn.AutoFit
+    
+    'Find last row (lastRow = Jobs errors, tempLastRow = Jobs + Consent errors)
+    tempLastRow = Cells(Rows.Count, 1).End(xlUp).Row
+    
+    regionList = Array("", "", "2-Pueblo", "4-HRWC", "5-NWCCOG", _
+        "6-LPEC", "7-Arapahoe", "8-ERC")
+    
+    'Transfer errors to regional sheets
+    For i = 2 To 7
+        'Filter jobs by region
+        Sheets("Full Report").Range(Cells(1, 1), Cells(lastRow, _
+            lastColumn)).AutoFilter Field:=headings("Region"), _
+            Criteria1:=regionList(i)
+            
+        'Copy error jobs into regional report
+        Sheets("Full Report").Range(Cells(1, 1), Cells(lastRow, _
+            lastColumn)).Copy Sheets(regionList(i)).Cells(1, 1)
+        
+        'Turn off filters
+        Sheets("Full Report").AutoFilterMode = False
+        
+        'Find region sheet last row
+        loopLastRow = Sheets(regionList(i)).Cells(Rows.Count, 1).End(xlUp).Row
+        
+        'Filter consent forms by region
+        Sheets("Full Report").Range(Cells(lastRow + 2, 1), Cells(tempLastRow, _
+            tempLastColumn)).AutoFilter Field:=2, Criteria1:=regionList(i)
+            
+        'Copy consent form errors into regional report
+        Sheets("Full Report").Range(Cells(lastRow + 2, 1), Cells(tempLastRow, _
+            tempLastColumn)).Copy Sheets(regionList(i)).Cells(loopLastRow + _
+            2, 1)
+        
+        'Find region number
+        regionNumber = Left(regionList(i), 1)
+        
+        'Add to regional error count
+        errorCount(regionNumber) = errorCount(regionNumber) + _
+            (Sheets(regionList(i)).Cells(Rows.Count, 1).End(xlUp).Row - _
+            loopLastRow - 2)
+        
+        'Adjust column widths
+        Sheets(regionList(i)).Cells.EntireColumn.AutoFit
+        
+        'Turn off filters
+        Sheets("Full Report").AutoFilterMode = False
+    Next i
+    
+    
+    
+    '-----ALL TABS-----
+    'Select A1 on all tabs
+    Sheets("Export").Select
+    Cells(1, 1).Select
+    Sheets("Criteria").Select
+    Cells(1, 1).Select
+    Sheets("Full Report").Select
+    Cells(1, 1).Select
+    For i = 2 To 7
+        Sheets(regionList(i)).Select
+        Cells(1, 1).Select
+    Next i
+    
+    'End on sheet that user started on
+    Sheets(startSheet).Select
+    
+    'Save current workbook
+    ActiveWorkbook.Save
+    
+    'Turn on application functions
+    TurnOnFunctions
+    
+    'Display run time and error counts
+    runningTime = Round(Timer - runningTime, 2)
+    If MsgBox(vbTab & vbTab & "RUN TIME." & vbNewLine & vbTab & vbTab & _
+        runningTime & " seconds" & vbNewLine & vbNewLine & vbTab & vbTab & _
+        "ERROR COUNT." & vbNewLine & vbTab & vbTab & "R1:" & vbTab & _
+        errorCount(1) & vbNewLine & vbTab & vbTab & "R2:" & vbTab & _
+        errorCount(2) & vbNewLine & vbTab & vbTab & "R4:" & vbTab & _
+        errorCount(4) & vbNewLine & vbTab & vbTab & "R5:" & vbTab & _
+        errorCount(5) & vbNewLine & vbTab & vbTab & "R6:" & vbTab & _
+        errorCount(6) & vbNewLine & vbTab & vbTab & "R7:" & vbTab & _
+        errorCount(7) & vbNewLine & vbTab & vbTab & "R8:" & vbTab & _
+        errorCount(8) & vbNewLine & vbTab & vbTab & "Unknown:" & vbTab & _
+        errorCount(0) & vbNewLine & vbTab & vbTab & "Total:" & vbTab & _
+        errorCount(1) + errorCount(2) + errorCount(4) + errorCount(5) + _
+        errorCount(6) + errorCount(7) + errorCount(8) + errorCount(0) & vbTab _
+        & vbTab, 0, "Process Complete") = vbOK Then
+    End If
+    
+End Sub
+Sub ExportReports()
+    
+    'Rev 0 - 4/18/17 - Cassidy Green
+    
+    Dim fileName As String, fileDirectory As String, finalMonth As String, _
+        programYear As String, region As String, newBook As Workbook
+    
+    Dim i As Integer
+    
+    Dim regionList As Variant
+    
+    Dim months As New Scripting.Dictionary
+    
+    'Turn off application functions
+    TurnOffFunctions
+    
+    'Initialize region list
+    regionList = Array("", "2-Pueblo", "4-HRWC", "5-NWCCOG", _
+        "6-LPEC", "7-Arapahoe", "8-ERC")
+    
+    'Create months dictionary
+    For i = 1 To 12
+        months.Add key:=Sheets("Criteria").Cells(i + 8, 1).Text, Item:=i
+    Next i
+    
+    'Assign final month
+    finalMonth = Sheets("Criteria").Cells(7, 2).Text
+    
+    'Assign program year
+    programYear = Sheets("Criteria").Cells(8, 2).Text
+    
+    For i = 1 To 6
+        'Assign region
+        region = "R" & Left(regionList(i), 1)
+        
+        'Assign file directory
+        fileDirectory = _
+            "Z:\Weatherization Assistance Program\Weatherization Makeover\" & _
+            programYear & "\" & programYear & " Monthly Reporting\" & region
+        
+        'Assign file name
+        fileName = months(finalMonth) & " " & finalMonth & " - " & _
+            programYear & " Desk Audit - " & region & " " & Format(Date, _
+            "yymmdd")
+        
+        'Give sheet new name
+        Sheets(regionList(i)).Name = "Desk Audit"
+        
+        'Copy and save as new workbook
+        Sheets("Desk Audit").Copy
+        Set newBook = ActiveWorkbook
+        newBook.SaveAs fileName:=fileDirectory & "\" & fileName
+        ActiveWindow.Close
+        
+        'Revert sheet name
+        Sheets("Desk Audit").Name = regionList(i)
+    Next i
+    
+    'Save current workbook
+    ActiveWorkbook.Save
+    
+    'Turn on application functions
+    TurnOnFunctions
+    
+    'Show process complete
+    MsgBox ("Process Complete")
+    
+End Sub
+Sub TurnOnFunctions()
+
+    Application.Calculation = xlCalculationAutomatic
+    Application.ScreenUpdating = True
+    Application.DisplayStatusBar = True
+    Application.EnableEvents = True
+    Application.ReferenceStyle = xlA1
+
+End Sub
+Sub TurnOffFunctions()
+    
+    Application.Calculation = xlCalculationManual
+    Application.ScreenUpdating = False
+    Application.DisplayStatusBar = False
+    Application.EnableEvents = False
+    ActiveSheet.DisplayPageBreaks = False
+    Application.ReferenceStyle = xlR1C1
+    
+End Sub
+Function checkPhone(phoneNumber As Variant) As Boolean
+
+    Dim i As Integer, numberCount As Integer
+    
+    numberCount = 0
+    
+    'Count numeric characters
+    For i = 1 To Len(phoneNumber)
+        If IsNumeric(Mid(phoneNumber, i, 1)) Then
+            numberCount = numberCount + 1
+        End If
+    Next i
+    
+    'Mark cell only if it doesn't have 10 or 11 numbers
+    If numberCount = 10 Or numberCount = 11 Then
+        checkPhone = False
+    Else
+        checkPhone = True
+    End If
+    
+End Function
+Function checkAddress(address1 As Variant, address2 As Variant) As Integer
+    
+    Dim flags As Variant, exceptions As Variant, flagFound As Boolean, _
+        exceptionFound As Boolean, i As Integer, buttonChosen As Integer
+    
+    'Initialize arrays and variables
+    flags = Array("#", "unit", "-", ",", "lot", "apt")
+    exceptions = Array("highway", "hwy", "cr", "box", "road", "rd", "p. o.", _
+        "p.o.")
+    
+    flagFound = False
+    exceptionFound = False
+    '0 = False/Not Caught, 1 = False/Caught, 2 = True/Caught
+    'True = Needs to be painted red
+    checkAddress = 0
+    
+    'Check for end number
+    If IsNumeric(Right(address1, 1)) Then
+        flagFound = True
+    End If
+    
+    'Check for flags
+    For i = 0 To UBound(flags)
+        If InStr(1, address1, flags(i), vbTextCompare) > 0 Then
+            flagFound = True
+        End If
+    Next i
+    
+    'Check for exceptions
+    For i = 0 To UBound(exceptions)
+        If InStr(1, address1, exceptions(i), vbTextCompare) > 0 Then
+            exceptionFound = True
+        End If
+    Next i
+    
+    'If address contains at least one flag and no exceptions
+    If flagFound And Not exceptionFound Then
+        checkAddress = 1
+        buttonChosen = MsgBox("Is this address divided correctly?" & _
+            vbNewLine & "Address 1: " & address1 & vbNewLine & "Address 2: " _
+            & address2, vbQuestion + vbYesNo + vbDefaultButton2)
+        If buttonChosen = vbNo Then
+            checkAddress = 2
+        End If
+    End If
+    
+End Function
+Function checkFuel(primary As Variant, fuelType As Variant) As Boolean
+    
+    Dim exceptedFuelTypes As Variant
+    exceptedFuelTypes = Array("propane", "wood", "pellets", "coal")
+    
+    'If fuel type is excepted
+    If UBound(Filter(exceptedFuelTypes, LCase(fuelType))) > -1 Then
+        checkFuel = False
+    'If fuel type is not accepted and primary is blank
+    ElseIf primary = "" Then
+        checkFuel = True
+    'If fuel type is not excepted and primary is not blank
+    Else
+        checkFuel = False
+    End If
+    
+End Function
+Function checkCFM(cfmPostExplanation As Variant, cfmPreExplanation As _
+    Variant) As Boolean
+    
+    checkCFM = False
+    
+    'If explanations are blank then mark cell red
+    If cfmPostExplanation = "" And cfmPreExplanation = "" Then
+        checkCFM = True
+    'Otherwise ask user if explanation makes sense
+    ElseIf MsgBox("Does this explain the CFM Difference?" & vbNewLine & _
+        vbNewLine & cfmPostExplanation & vbNewLine & vbNewLine & _
+        cfmPreExplanation, vbQuestion + vbYesNo + vbDefaultButton1) = vbNo Then
+        checkCFM = True
+    End If
+    
+End Function
+Sub Test()
+    
+    MsgBox checkPhone(InputBox("Enter Phone Number"))
+    
+End Sub
